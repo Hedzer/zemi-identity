@@ -1,2 +1,2 @@
-# zt-auth-client
-A zero-trust authentication client
+# zemi-identity
+A zero-trust authentication client for the Zemi platform.
