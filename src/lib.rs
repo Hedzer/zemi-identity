@@ -7,7 +7,7 @@ mod error;
 pub use error::Error;
 
 mod utils;
-use utils::argon_u8;
+use utils::argon2id_u8;
 
 #[cfg(test)]
 mod tests;
@@ -48,14 +48,14 @@ impl Version {
 
 impl Identity {
 	pub fn from_credentials(username: &str, password: &str, salt: &str, version: Version) -> Result<Identity, Error> {
-		let user_hash = match argon_u8(username, salt) {
+		let user_hash = match argon2id_u8(username, salt) {
 			Ok(hash) => hash,
 			Err(_) => return Err(Error::InvalidArguments),
 		};
 
 		let mash = format!("{username}{password}");
 		let mash_str = mash.as_str();
-		let derived_key = match argon_u8(mash_str, salt) {
+		let derived_key = match argon2id_u8(mash_str, salt) {
 			Ok(hash) => hash,
 			Err(_) => return Err(Error::InvalidArguments),
 		};
