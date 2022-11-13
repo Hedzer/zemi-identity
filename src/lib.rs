@@ -3,7 +3,7 @@ pub use ed25519_dalek::{Keypair, Signer, Verifier, SecretKey, PublicKey, Signatu
 use base64_url::base64;
 use std::str;
 
-pub mod error;
+mod error;
 pub use error::Error;
 
 mod utils;
@@ -120,6 +120,8 @@ impl Identity {
 		
 		match version {
 			Version::V1 => {
+				if decoded.len() != 129 { return Err(Error::InvalidBase64String); }
+
 				let public_id = base64::encode(&decoded[1..65] as &[u8]);
 				let public = match PublicKey::from_bytes(&decoded[65..97] as &[u8]) {
 					Ok(key) => key,
@@ -187,6 +189,8 @@ impl PublicIdentity {
 
 		match version {
 			Version::V1 => {
+				if decoded.len() >= 97 { return Err(Error::InvalidBase64String); }
+
 				let public_id = base64::encode(&decoded[1..65] as &[u8]);
 				let public_key = match PublicKey::from_bytes(&decoded[65..97] as &[u8]) {
 					Ok(key) => key,
