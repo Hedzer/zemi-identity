@@ -47,6 +47,7 @@ mod tests {
 		assert!(signature_op.is_ok());
 
 		let b64_id = id.to_b64url().unwrap();
+		println!("{}", b64_id);
 		let restored_id_op = Identity::from_b64url(&b64_id);
 		assert_eq!(restored_id_op.is_ok(), true);
 
@@ -64,5 +65,13 @@ mod tests {
 
 		assert_ne!(public_id.to_b64url().unwrap(), id.to_b64url().unwrap());
 		assert!(Identity::from_b64url(&public_b64).is_err());
+	}
+
+	#[test]
+	fn public_serde_works() {
+		let id = PublicIdentity::from_credentials("username", "password", "salt", Version::V1).unwrap();
+		let b64_id = id.to_b64url().unwrap();
+		println!("{}", b64_id);
+		assert!(PublicIdentity::from_b64url(&b64_id).is_ok());
 	}
 }

@@ -2,7 +2,7 @@ use argon2::{self, Config, Variant};
 use sha2::{Sha512, Digest};
 use crate::Error;
 
-pub fn argon2id_u8(data: &str, salt: &str) -> Result<[u8; 64], Error> {
+pub fn argon2di_u8(data: &str, salt: &str) -> Result<[u8; 64], Error> {
 	let config = Config { variant: Variant::Argon2id, ..Config::default() };
 	let fixed_salt = sha512_u8(salt);
 	let hash = argon2::hash_encoded(data.as_bytes(), &fixed_salt, &config).unwrap();

@@ -1,36 +1,93 @@
+#![warn(missing_docs)]
+//! # Zemi Identity
+//! 
+//! Identity tools that can be used to create credentials without a trusted third party.
+//! This library can deterministically produce an asymmetric keypair from user credentials.
+//! It also generates a consistent public identity tied to the provided username that cannot easily be used to discover the username.
+//! ### Important Exports
+//! * [Identity](Identity)
+//! * [PublicIdentity](PublicIdentity)
+//! ### Version 1 (current)
+//! * Uses [Argon2di](argon2) to derive key material.
+//! * Uses [ed25519](ed25519_dalek) elliptical curve cryptography for keys. 
+//! 
+//! ### Example: From Credentials
+//! ```
+//! # use zemi_identity::*;
+//! let identity = Identity::from_credentials("username", "password", "salt", Version::V1)?;
+//! let signature = identity.sign(b"message")?;
+//! let verify_op = identity.verify(b"message", &signature);
+//! assert!(verify_op.is_ok());
+//! # Ok::<(), Error>(())
+//! ```
+//! 
+//! ### Example: To Public Identity
+//! ```
+//! # use zemi_identity::*;
+//! let identity = Identity::from_credentials("username", "password", "salt", Version::V1)?;
+//! # let signature = identity.sign(b"message")?;
+//! let public = identity.to_public_identity();
+//! let verify_op = public.verify(b"message", &signature);
+//! assert!(verify_op.is_ok());
+//! # Ok::<(), Error>(())
+//! ```
+
 
 pub use ed25519_dalek::{Keypair, Signer, Verifier, SecretKey, PublicKey, Signature};
-use base64_url::base64;
+use base64_url;
 use std::str;
 
 mod error;
 pub use error::Error;
 
 mod utils;
-use utils::argon2id_u8;
+use utils::argon2di_u8;
 
 #[cfg(test)]
 mod tests;
 
+
+
+
+/// An identity that includes public and private key components. 
+/// This can be used to both sign and verify.
 pub struct Identity {
-	version: Version,
-	public_id: String,
-	keypair: Keypair,
+	/// The algorithm version for this Identity.
+	pub version: Version,
+
+	/// The public identity derived from the username. This can be freely distributed ✓.
+	pub public_id: String,
+
+	/// The public and private keys for this Identity. This should **not** be shared 𐄂.
+	pub keypair: Keypair,
 }
 
+/// Identity that includes only public components. 
+/// This can be used to verify, but not sign.
 pub struct PublicIdentity {
-	version: Version,
-	public_id: String,
-	public_key: PublicKey,
+	/// The algorithm version for this PublicIdentity.
+	pub version: Version,
+
+	/// The public identity derived from the username. This can be freely distributed ✓.
+	pub public_id: String,
+
+	/// The public key for this PublicIdentity. This can be freely distributed ✓.
+	pub public_key: PublicKey,
 }
 
+/// The version of the derivation algorithm that turns credentials into keys.
 #[derive(Copy, Clone, PartialEq)]
 pub enum Version {
+	/// The first version of the derivation algorithm.
+	/// EdDSA + Argon2di.
 	V1 = 1,
+
+	/// Catch-all version.
 	Unknown,
 }
 
 impl Version {
+	/// Converts the Version to a u8.
 	fn to_u8(&self) -> u8 {
 		match self {
 			Version::V1 => 1u8,
@@ -38,6 +95,7 @@ impl Version {
 		}
 	}
 
+	/// Converts a u8 to a Version.
 	fn from_u8(version: &u8) -> Version {
 		match version {
 			1 => Version::V1,
@@ -47,20 +105,26 @@ impl Version {
 }
 
 impl Identity {
+	/// Converts credentials into an Identity. An Identity includes public and private key, a public id, and a version.
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = Identity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// # Ok::<(), Error>(())
+	/// ```
 	pub fn from_credentials(username: &str, password: &str, salt: &str, version: Version) -> Result<Identity, Error> {
-		let user_hash = match argon2id_u8(username, salt) {
+		let user_hash = match argon2di_u8(username, salt) {
 			Ok(hash) => hash,
 			Err(_) => return Err(Error::InvalidArguments),
 		};
 
 		let mash = format!("{username}{password}");
 		let mash_str = mash.as_str();
-		let derived_key = match argon2id_u8(mash_str, salt) {
+		let derived_key = match argon2di_u8(mash_str, salt) {
 			Ok(hash) => hash,
 			Err(_) => return Err(Error::InvalidArguments),
 		};
 
-		let public_id: String = base64::encode(&user_hash);
+		let public_id: String = base64_url::encode(&user_hash);
 	
 		let mut private_key: [u8; 32] = Default::default();
 		private_key.copy_from_slice(&derived_key[..32]);
@@ -76,6 +140,13 @@ impl Identity {
 		Ok(Identity { version, public_id, keypair })
 	}
 
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = Identity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// let signature = identity.sign(b"message")?;
+	/// # Ok::<(), Error>(())
+	/// ```
+	/// Signs a message using the private key.
 	pub fn sign(&self, message: &[u8]) -> Result<Signature, Error> {
 		let signature: Signature = match self.keypair.try_sign(message) {
 			Ok(signature) => signature,
@@ -84,6 +155,16 @@ impl Identity {
 		Ok(signature)
 	}
 
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = Identity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// let signature = identity.sign(b"message")?;
+	/// let verify_op = identity.verify(b"message", &signature);
+	/// assert!(verify_op.is_ok());
+	/// # Ok::<(), Error>(())
+	/// ```
+	/// Verifies a message using the public key. 
+	/// This method can also be called from a [PublicIdentity](PublicIdentity).
 	pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<(), Error> {
 		match self.keypair.verify(message, signature) {
 			Ok(_) => Ok(()),
@@ -91,8 +172,15 @@ impl Identity {
 		}
 	}
 
+	/// Serializes the struct to a single url-safe base64 string.
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = Identity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// let url_safe_b64 = identity.to_b64url()?;	// -> AWlfU1LH4wkBHJpmu...
+	/// # Ok::<(), Error>(())
+	/// ```
 	pub fn to_b64url(&self) -> Result<String, Error> {
-		let public_id = match base64::decode(&self.public_id) {
+		let public_id = match base64_url::decode(&self.public_id) {
 			Ok(id) => id,
 			Err(_) => return Err(Error::InvalidBase64String),
 		};
@@ -104,11 +192,19 @@ impl Identity {
 			self.keypair.secret.as_bytes(),		// 32 bytes
 		].concat();
 
-		Ok(base64::encode(merged))
+		Ok(base64_url::encode(&merged))
 	}
 
+	/// Deserializes a url-safe base64 string.
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = Identity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// let url_safe_b64 = identity.to_b64url()?;	// -> AWlfU1LH4wkBHJpmu...
+	/// let deserialized = Identity::from_b64url(&url_safe_b64)?; // -> a copy of "identity" 
+	/// # Ok::<(), Error>(())
+	/// ```
 	pub fn from_b64url(b64_id: &str) -> Result<Identity, Error> {
-		let decoded = match base64::decode(b64_id) {
+		let decoded = match base64_url::decode(b64_id) {
 			Ok(id) => id,
 			Err(_) => return Err(Error::InvalidBase64String),
 		};
@@ -122,7 +218,7 @@ impl Identity {
 			Version::V1 => {
 				if decoded.len() != 129 { return Err(Error::InvalidBase64String); }
 
-				let public_id = base64::encode(&decoded[1..65] as &[u8]);
+				let public_id = base64_url::encode(&decoded[1..65] as &[u8]);
 				let public = match PublicKey::from_bytes(&decoded[65..97] as &[u8]) {
 					Ok(key) => key,
 					Err(_) => return Err(Error::InvalidBase64String),
@@ -138,6 +234,7 @@ impl Identity {
 		}
 	}
 
+	/// Converts the Identity into a publicly distributable form.
 	pub fn to_public_identity(&self) -> PublicIdentity {
 		PublicIdentity {
 			version: self.version,
@@ -149,20 +246,26 @@ impl Identity {
 }
 
 impl PublicIdentity {
+	/// Converts credentials into a PublicIdentity. A PublicIdentity has only public components that can safely be distributed.
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = PublicIdentity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// # Ok::<(), Error>(())
+	/// ```
 	pub fn from_credentials(username: &str, password: &str, salt: &str, version: Version) -> Result<PublicIdentity, Error> {
 		let identity = Identity::from_credentials(username, password, salt, version)?;
 		Ok(identity.to_public_identity())
 	}
 
-	pub fn to_string(&self) -> String {
-		let version = base64::encode([self.version.to_u8()]);
-		let public_id = self.public_id.clone();
-		let public_key = base64::encode(self.public_key);
-		return format!("{version}.{public_id}.{public_key}");
-	}
-
+	/// Serializes the struct to a single url-safe base64 string.
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = PublicIdentity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// let url_safe_b64 = identity.to_b64url()?;	// -> AWlfU1LH4wkBHJpmu...
+	/// # Ok::<(), Error>(())
+	/// ```
 	pub fn to_b64url(&self) -> Result<String, Error> {
-		let public_id = match base64::decode(&self.public_id) {
+		let public_id = match base64_url::decode(&self.public_id) {
 			Ok(id) => id,
 			Err(_) => return Err(Error::InvalidBase64String),
 		};
@@ -173,11 +276,19 @@ impl PublicIdentity {
 			self.public_key.as_bytes(),			// 32 bytes
 		].concat();
 
-		Ok(base64::encode(merged))
+		Ok(base64_url::encode(&merged))
 	}
 
+	/// Deserializes a url-safe base64 string.
+	/// ```
+	/// # use zemi_identity::*;
+	/// let identity = PublicIdentity::from_credentials("username", "password", "salt", Version::V1)?;
+	/// let url_safe_b64 = identity.to_b64url()?;	// -> AWlfU1LH4wkBHJpmu...
+	/// let deserialized = PublicIdentity::from_b64url(&url_safe_b64)?; // -> a copy of "identity" 
+	/// # Ok::<(), Error>(())
+	/// ```
 	pub fn from_b64url(b64_id: &str) -> Result<PublicIdentity, Error> {
-		let decoded = match base64::decode(b64_id) {
+		let decoded = match base64_url::decode(b64_id) {
 			Ok(id) => id,
 			Err(_) => return Err(Error::InvalidBase64String),
 		};
@@ -189,9 +300,9 @@ impl PublicIdentity {
 
 		match version {
 			Version::V1 => {
-				if decoded.len() >= 97 { return Err(Error::InvalidBase64String); }
+				if decoded.len() < 97 { return Err(Error::InvalidBase64String); }
 
-				let public_id = base64::encode(&decoded[1..65] as &[u8]);
+				let public_id = base64_url::encode(&decoded[1..65] as &[u8]);
 				let public_key = match PublicKey::from_bytes(&decoded[65..97] as &[u8]) {
 					Ok(key) => key,
 					Err(_) => return Err(Error::InvalidBase64String),
@@ -202,6 +313,8 @@ impl PublicIdentity {
 		}
 	}
 
+	/// Verifies the validity of a message signature.
+	/// 
 	pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<(), Error> {
 		match self.public_key.verify(message, signature) {
 			Ok(_) => Ok(()),
