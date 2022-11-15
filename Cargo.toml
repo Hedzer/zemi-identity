@@ -6,7 +6,7 @@ authors = ["Hedzer Ferwerda <hedzer87+crates.io@gmail.com>"]
 description = "Identity tools that can be used to create credentials without a trusted third party. This library can deterministically produce an asymmetric keypair from user credentials. It also generates a consistent public identity tied to the provided username that cannot easily be used to discover the username."
 license = "MIT"
 repository = "https://github.com/Hedzer/zemi-identity"
-documentation = "README.md"
+documentation = "https://github.com/Hedzer/zemi-identity/blob/main/README.md"
 
 [dependencies]
 rust-argon2 = "1.0"
